@@ -527,7 +527,7 @@
       }
     });
     
-    // 录音功能模拟
+    // 录音功能
     const startRecord = document.getElementById('startRecord');
     const stopRecord = document.getElementById('stopRecord');
     const playRecord = document.getElementById('playRecord');
@@ -535,10 +535,14 @@
     const recordDuration = document.getElementById('recordDuration');
     const recordingIndicator = document.getElementById('recordingIndicator');
     const pulseRing = document.getElementById('pulseRing');
+    const practiceText = document.getElementById('practiceText');
     
     let recording = false;
     let recordTime = 0;
     let timer;
+    let mediaRecorder;
+    let audioChunks = [];
+    let recordedAudio = null;
     
     // 录音动画
     function startPulseAnimation() {
@@ -560,8 +564,44 @@
       return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
     
-    startRecord.addEventListener('click', () => {
+    // 获取用户媒体权限
+    async function getMedia() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        return stream;
+      } catch (err) {
+        console.error("无法访问麦克风:", err);
+        alert("无法访问麦克风，请检查权限设置");
+        return null;
+      }
+    }
+    
+    startRecord.addEventListener('click', async () => {
+      // 如果已经录过音且未在录制状态，则执行分析
+      if (recordedAudio && !recording) {
+        analyzePronunciation();
+        return;
+      }
+      
+      const stream = await getMedia();
+      if (!stream) return;
+      
       recording = true;
+      audioChunks = [];
+      
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = event => {
+        audioChunks.push(event.data);
+      };
+      
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        recordedAudio = audioBlob;
+        stream.getTracks().forEach(track => track.stop());
+      };
+      
+      mediaRecorder.start();
+      
       startRecord.classList.add('hidden');
       stopRecord.classList.remove('hidden');
       recordingStatus.classList.remove('hidden');
@@ -588,22 +628,115 @@
       stopRecord.classList.add('hidden');
       playRecord.classList.remove('hidden');
       
+      // 停止录音
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      
       // 停止录音动画
       stopPulseAnimation();
       recordingIndicator.classList.add('bg-primary/10');
       recordingIndicator.classList.remove('bg-danger/10');
       recordingIndicator.querySelector('i').classList.add('text-primary');
       recordingIndicator.querySelector('i').classList.remove('text-danger');
+      
+      // 更新按钮文本，提示可以进行分析
+      startRecord.innerHTML = '<i class="fa fa-check mr-2"></i>分析发音';
+      startRecord.classList.remove('hidden');
     });
     
     playRecord.addEventListener('click', () => {
-      // 模拟播放录音
-      playRecord.innerHTML = '<i class="fa fa-pause mr-2"></i>暂停播放';
+      if (!recordedAudio) return;
       
-      setTimeout(() => {
+      const audioUrl = URL.createObjectURL(recordedAudio);
+      const audio = new Audio(audioUrl);
+      
+      if (playRecord.querySelector('.fa-play')) {
+        playRecord.innerHTML = '<i class="fa fa-pause mr-2"></i>暂停播放';
+        audio.play();
+        
+        audio.onended = () => {
+          playRecord.innerHTML = '<i class="fa fa-play mr-2"></i>播放录音';
+        };
+      } else {
         playRecord.innerHTML = '<i class="fa fa-play mr-2"></i>播放录音';
-      }, 3000);
+        audio.pause();
+      }
     });
+    
+    // 发音分析功能（模拟）
+    async function analyzePronunciation() {
+      if (!recordedAudio) {
+        alert("请先录制音频");
+        return;
+      }
+      
+      // 显示加载状态
+      const originalText = startRecord.innerHTML;
+      startRecord.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>分析中...';
+      startRecord.disabled = true;
+      
+      try {
+        // 模拟网络延迟
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // 模拟分析结果
+        const mockData = {
+          overallScore: Math.floor(Math.random() * 30) + 70, // 70-100分
+          accuracy: Math.floor(Math.random() * 30) + 70,
+          fluency: Math.floor(Math.random() * 25) + 65,
+          intonation: Math.floor(Math.random() * 30) + 60,
+          suggestions: [
+            "元音发音需要加强，特别是 /ɑː/ 和 /æ/ 的区别。建议多听标准发音并模仿练习。",
+            "多音节词的重音位置需要注意，如 \"planning\" 应重读第一个音节。建议学习单词重音规则。",
+            "部分句子语速过快导致发音模糊，建议适当放慢速度，确保每个单词清晰可辨。"
+          ]
+        };
+        
+        // 更新UI显示分析结果
+        updateAnalysisResult(mockData);
+      } catch (error) {
+        console.error('分析出错:', error);
+        alert('分析过程中出现错误，请重试');
+      } finally {
+        // 恢复按钮状态
+        startRecord.innerHTML = originalText;
+        startRecord.disabled = false;
+      }
+    }
+    
+    // 更新分析结果UI
+    function updateAnalysisResult(data) {
+      // 更新总体评分
+      document.getElementById('overallScore').textContent = data.overallScore;
+      document.querySelector('.bg-primary.h-4.rounded-full').style.width = `${data.overallScore}%`;
+      
+      // 更新详细评分
+      document.querySelectorAll('.grid.grid-cols-3 > div')[0].querySelector('.font-semibold').textContent = `${data.accuracy}%`;
+      document.querySelectorAll('.grid.grid-cols-3 > div')[1].querySelector('.font-semibold').textContent = `${data.fluency}%`;
+      document.querySelectorAll('.grid.grid-cols-3 > div')[2].querySelector('.font-semibold').textContent = `${data.intonation}%`;
+      
+      // 更新建议
+      const suggestionsContainer = document.querySelector('.grid.md\\:grid-cols-3.gap-6');
+      suggestionsContainer.innerHTML = '';
+      
+      data.suggestions.forEach(suggestion => {
+        const suggestionElement = document.createElement('div');
+        suggestionElement.className = 'p-4 border border-neutral-200 rounded-xl hover:border-primary/30 transition-colors';
+        suggestionElement.innerHTML = `
+          <div class="flex items-center mb-3">
+            <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mr-3">
+              <i class="fa fa-lightbulb-o text-primary"></i>
+            </div>
+            <h4 class="font-medium">改进建议</h4>
+          </div>
+          <p class="text-neutral-700 text-sm">
+            ${suggestion}
+          </p>
+        `;
+        suggestionsContainer.appendChild(suggestionElement);
+      });
+    }
     
     // 进度图表
     const ctx = document.getElementById('progressChart').getContext('2d');
